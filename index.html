@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Importar Datos a Google Sheets</title>
+</head>
+<body>
+    <h1>Importar Datos a Google Sheets</h1>
+    <textarea id="jsonData" rows="20" cols="100" placeholder="Pega tu JSON aquí..."></textarea><br>
+    <label for="sheet-select">Selecciona la Hoja:</label>
+    <select id="sheet-select"></select><br>
+    <label for="new-sheet">O ingresa el nombre de una nueva Hoja:</label>
+    <input type="text" id="new-sheet"><br>
+
+    <!-- Agregar inputs para los parámetros -->
+    <label for="tipoConsulta">Tipo de Consulta:</label>
+    <select id="tipoConsulta">
+        <option value="consultas.getContrataciones">Contrataciones</option>
+    </select><br>
+
+    <label for="anio">Año:</label>
+    <input type="number" id="anio" value="2023"><br>
+
+    <label for="start">Comienzo:</label>
+    <input type="number" id="start" value="0"><br>
+
+    <label for="limit">Límite:</label>
+    <input type="number" id="limit" value="1"><br>
+
+    <label for="estado">Estado:</label>
+    <select id="estado">
+        <option value="AP">Apertura</option>
+        <option value="ET">En Tramite</option>
+        <option value="CO">Concluida</option>
+    </select><br>
+
+    <label for="tipoGestion">Gestión:</label>
+    <select id="tipoGestion">
+        <option value="B">CONCURSO PÚBLICO</option>
+        <option value="V">CONCURSO PRIVADO</option>
+        <option value="C">CONCURSO DE PRECIOS</option>
+        <option value="T">CONTRATACIÓN DIRECTA</option>
+        <option value="I">CONCURSOS DE PROYECTOS INTEGRALES</option>
+        <option value="D">GESTIÓN DIRECTA</option>
+        <option value="A">LICITACIÓN ACELERADA</option>
+        <option value="L">LICITACIÓN PÚBLICA</option>
+        <option value="P">LICITACIÓN PRIVADA</option>
+        <option value="S">SUBASTA O REMATE PÚBLICO</option>
+        <option value="O">OTROS</option>
+    </select><br>
+
+    <label for="col-name">Nombre de la Columna:</label>
+    <input type="text" id="col-name" value="ID"><br>
+
+    <button id="iniciarCarga">Iniciar Carga</button>
+
+    <script>
+        async function fetchSheets() {
+            const response = await fetch('http://localhost:3000/sheets');
+            const sheets = await response.json();
+            console.log('Hojas disponibles:', sheets); // Mostrar las hojas disponibles
+            const sheetSelect = document.getElementById('sheet-select');
+
+            sheets.forEach(sheet => {
+                const option = document.createElement('option');
+                option.value = sheet.title;
+                option.textContent = sheet.title;
+                sheetSelect.appendChild(option);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', fetchSheets);
+
+        async function iniciarCarga() {
+            const tipoConsulta = document.getElementById('tipoConsulta').value;
+            const anio = document.getElementById('anio').value;
+            const start = document.getElementById('start').value;
+            const limit = document.getElementById('limit').value;
+            const estado = document.getElementById('estado').value;
+            const tipoGestion = document.getElementById('tipoGestion').value;
+            const sheetName = document.getElementById('new-sheet').value || document.getElementById('sheet-select').value;
+            const colName = document.getElementById('col-name').value;
+
+            const params = {
+                a: tipoConsulta,
+                anio: anio,
+                start: start,
+                limit: limit,
+                estado: estado,
+                tipoGestion: tipoGestion
+            };
+
+            // Función para convertir los parámetros en una cadena de consulta
+            function createQueryString(params) {
+                return Object.entries(params)
+                    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+                    .join('&');
+            }
+
+            // Función para obtener el array de elementos
+            async function getElements() {
+                const queryString = createQueryString(params);
+                const url = `https://www.santafe.gov.ar/gestionesdecompras/site/AppAjax.php?${queryString}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                console.log('Respuesta completa:', data); // Imprimir la respuesta completa para ver su estructura
+
+                if (data && data.data) {
+                    return data.data; // Ajustar según la estructura real
+                } else {
+                    throw new Error('La estructura de los datos no es la esperada.');
+                }
+            }
+
+            // Función para obtener los detalles de un idGestion y extraer información del HTML
+            async function getDetail(idGestion) {
+                try {
+                    const detailUrl = `https://www.santafe.gov.ar/gestionesdecompras/site/gestion.php?idGestion=${idGestion}&contar=1`;
+                    const response = await fetch(detailUrl);
+                    const html = await response.text(); // Obtener el contenido HTML como texto
+
+                    // Parsear el HTML para extraer la información relevante
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+
+                    // Extraer todos los pares ver-label y ver-valor dentro de ver-linea-campo
+                    const campos = doc.querySelectorAll('.ver-linea-campo');
+                    const detalle = {};
+
+                    campos.forEach(campo => {
+                        const label = campo.querySelector('.ver-label');
+                        const value = campo.querySelector('.ver-valor, .ver-valor1, .ver-valor-lista');
+                        if (label && value) {
+                            const key = label.textContent.trim().replace(/\s+/g, '');
+                            const val = value.textContent.trim();
+                            detalle[key] = val;
+                        }
+                    });
+
+                    // Extraer las URLs de los PDF y sus títulos
+                    const pdfLinks = doc.querySelectorAll('.ver-valor-lista a');
+                    const pdfData = Array.from(pdfLinks).map(link => ({
+                        url: link.href.replace('http://localhost:3000/', 'https://www.santafe.gov.ar/gestionesdecompras/'),
+                        title: link.title.trim(),
+                        texto: '' // Inicializar el campo texto
+                    }));
+
+                    detalle.pdfData = pdfData;
+
+                    return detalle;
+                } catch (error) {
+                    console.error('Error al obtener detalles:', error);
+                    throw error;
+                }
+            }
+
+            // Función para aplicar OCR a un PDF y extraer su texto
+            async function extractTextFromPdf(pdfUrl) {
+                try {
+                    console.log(`Iniciando extracción de texto para: ${pdfUrl}`);
+                    const loadingTask = pdfjsLib.getDocument(pdfUrl);
+                    const pdf = await loadingTask.promise;
+                    let allText = '';
+
+                    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                        console.log(`Procesando página ${pageNum} de ${pdf.numPages} para ${pdfUrl}`);
+                        const page = await pdf.getPage(pageNum);
+                        const viewport = page.getViewport({ scale: 2.0 });
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+
+                        await page.render({ canvasContext: context, viewport: viewport }).promise;
+                        const image = canvas.toDataURL('image/png');
+
+                        const { data: { text } } = await Tesseract.recognize(image, 'eng', {
+                            logger: m => console.log(`[${pdfUrl}] Progreso de OCR:`, m)
+                        });
+
+                        allText += text + '\n';
+                    }
+
+                    console.log(`Extracción de texto completa para: ${pdfUrl}`);
+                    return allText;
+                } catch (error) {
+                    console.error('Error al extraer texto del PDF:', error);
+                    throw error;
+                }
+            }
+
+            // Función para obtener los datos de la hoja seleccionada
+            async function fetchSheetData(sheetName, colName) {
+                try {
+                    const response = await fetch(`http://localhost:3000/sheets/${encodeURIComponent(sheetName)}/${encodeURIComponent(colName)}`);
+                    if (!response.ok) {
+                        throw new Error('Error al obtener datos de la hoja seleccionada');
+                    }
+                    const sheetData = await response.json();
+                    const idGestionArray = sheetData;
+                    console.log('Array de idGestion:', idGestionArray); // Mostrar el array de idGestion
+                    return idGestionArray;
+                } catch (error) {
+                    console.error('Error en fetchSheetData:', error);
+                    return [];
+                }
+            }
+
+            // Función para importar datos a Google Sheets
+            async function importData(data, sheetName) {
+                try {
+                    const response = await fetch('http://localhost:3000/import', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ data, sheetName })
+                    });
+
+                    if (response.ok) {
+                        console.log('Datos añadidos exitosamente a Google Sheets');
+                    } else {
+                        console.error('Error añadiendo datos a Google Sheets');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                }
+            }
+
+            // Función para cargar las bibliotecas necesarias y ejecutar el código principal
+            async function loadLibrariesAndRun() {
+                try {
+                    // Cargar Tesseract.js
+                    const tesseractScript = document.createElement('script');
+                    tesseractScript.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@2.1.1/dist/tesseract.min.js';
+                    document.head.appendChild(tesseractScript);
+
+                    // Cargar PDF.js desde unpkg
+                    const pdfScript = document.createElement('script');
+                    pdfScript.src = 'https://unpkg.com/pdfjs-dist@2.6.347/build/pdf.min.js';
+                    document.head.appendChild(pdfScript);
+
+                    // Esperar a que las bibliotecas se carguen
+                    await new Promise(resolve => {
+                        tesseractScript.onload = () => {
+                            pdfScript.onload = () => {
+                                resolve();
+                            };
+                        };
+                    });
+
+                    // Configurar GlobalWorkerOptions para PDF.js
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@2.6.347/build/pdf.worker.min.js';
+
+                    // Obtener datos de la hoja seleccionada si existe
+                    let existingIds = [];
+                    if (sheetName) {
+                        existingIds = await fetchSheetData(sheetName, colName);
+                    }
+
+                    // Ejecutar la obtención de detalles para cada elemento y extraer texto de los PDFs
+                    const elements = await getElements();
+                    const filteredElements = elements.filter(item => !existingIds.includes(item.idGestion));
+
+                    for (const item of filteredElements) {
+                        const detalle = await getDetail(item.idGestion); // Asumimos que el id se llama idGestion
+
+                        if (detalle.pdfData && detalle.pdfData.length > 0) {
+                            // Listar los enlaces y los títulos de los PDF
+                            console.log('PDF Links and Titles for idGestion', item.idGestion, ':', detalle.pdfData);
+
+                            // Extraer texto de cada PDF encontrado
+                            await Promise.all(detalle.pdfData.map(async (pdf) => {
+                                console.log(`Procesando PDF: ${pdf.title}`);
+                                const startTime = performance.now();
+                                const text = await extractTextFromPdf(pdf.url);
+                                const endTime = performance.now();
+                                console.log(`Texto extraído de ${pdf.title} en ${((endTime - startTime) / 1000).toFixed(2)} segundos:`, text);
+                                pdf.texto = text.trim(); // Agregar el texto extraído al objeto pdf correspondiente
+                            }));
+                        }
+
+                        const dataToImport = {
+                            ...item,
+                            ...detalle // Mover los detalles al objeto principal
+                        };
+
+                        // Importar los datos procesados a Google Sheets
+                        await importData([dataToImport], sheetName);
+                    }
+
+                    console.log('Proceso de importación completado.');
+
+                } catch (error) {
+                    console.error('Error durante la ejecución:', error);
+                }
+            }
+
+            // Ejecutar la función para cargar las bibliotecas y correr el código principal
+            loadLibrariesAndRun();
+        }
+
+        document.getElementById('iniciarCarga').addEventListener('click', iniciarCarga);
+    </script>
+</body>
+</html>

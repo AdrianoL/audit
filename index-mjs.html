@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Importar Datos a Google Sheets</title>
+</head>
+<body>
+    <h1>Importar Datos a Google Sheets</h1>
+    <label for="sheet-select">Selecciona la Hoja:</label>
+    <select id="sheet-select"></select><br>
+    <label for="new-sheet">O ingresa el nombre de una nueva Hoja:</label>
+    <input type="text" id="new-sheet"><br>
+
+    <label for="tipoConsulta">Tipo de Consulta:</label>
+    <select id="tipoConsulta">
+        <option value="consultas.getContrataciones">Contrataciones</option>
+    </select><br>
+
+    <label for="anio">Año:</label>
+    <input type="number" id="anio" value="2023"><br>
+
+    <label for="start">Comienzo:</label>
+    <input type="number" id="start" value="0"><br>
+
+    <label for="limit">Límite:</label>
+    <input type="number" id="limit" value="1"><br>
+
+    <label for="estado">Estado:</label>
+    <select id="estado">
+        <option value="AP">Apertura</option>
+        <option value="ET">En Tramite</option>
+        <option value="CO">Concluida</option>
+    </select><br>
+
+    <label for="tipoGestion">Gestión:</label>
+    <select id="tipoGestion">
+        <option value="B">CONCURSO PÚBLICO</option>
+        <option value="V">CONCURSO PRIVADO</option>
+        <option value="C">CONCURSO DE PRECIOS</option>
+        <option value="T">CONTRATACIÓN DIRECTA</option>
+        <option value="I">CONCURSOS DE PROYECTOS INTEGRALES</option>
+        <option value="D">GESTIÓN DIRECTA</option>
+        <option value="A">LICITACIÓN ACELERADA</option>
+        <option value="L">LICITACIÓN PÚBLICA</option>
+        <option value="P">LICITACIÓN PRIVADA</option>
+        <option value="S">SUBASTA O REMATE PÚBLICO</option>
+        <option value="O">OTROS</option>
+    </select><br>
+
+    <label for="col-name">Nombre de la Columna:</label>
+    <input type="text" id="col-name" value="idGestion"><br>
+
+    <button id="iniciarCarga">Iniciar Carga</button>
+
+    <script>
+        async function fetchSheets() {
+            const response = await fetch('http://localhost:3000/sheets');
+            const sheets = await response.json();
+            const sheetSelect = document.getElementById('sheet-select');
+
+            sheets.forEach(sheet => {
+                const option = document.createElement('option');
+                option.value = sheet.title;
+                option.textContent = sheet.title;
+                sheetSelect.appendChild(option);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', fetchSheets);
+
+        async function iniciarCarga() {
+            const tipoConsulta = document.getElementById('tipoConsulta').value;
+            const anio = document.getElementById('anio').value;
+            const start = document.getElementById('start').value;
+            const limit = document.getElementById('limit').value;
+            const estado = document.getElementById('estado').value;
+            const tipoGestion = document.getElementById('tipoGestion').value;
+            const sheetName = document.getElementById('new-sheet').value || document.getElementById('sheet-select').value;
+            const colName = document.getElementById('col-name').value;
+
+            const requestBody = {
+                tipoConsulta,
+                anio,
+                start,
+                limit,
+                estado,
+                tipoGestion,
+                sheetName,
+                colName
+            };
+
+            try {
+                const response = await fetch('http://localhost:3000/fetch-and-process-data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (response.ok) {
+                    console.log('Datos añadidos exitosamente a Google Sheets');
+                } else {
+                    console.error('Error añadiendo datos a Google Sheets');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        document.getElementById('iniciarCarga').addEventListener('click', iniciarCarga);
+    </script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Importar Datos a Google Sheets</title>
+</head>
+<body>
+    <h1>Importar Datos a Google Sheets</h1>
+    <textarea id="jsonData" rows="20" cols="100" placeholder="Pega tu JSON aquí..."></textarea><br>
+    <label for="sheet-select">Selecciona la Hoja:</label>
+    <select id="sheet-select"></select><br>
+    <label for="new-sheet">O ingresa el nombre de una nueva Hoja:</label>
+    <input type="text" id="new-sheet"><br>
+    <button onclick="importData()">Importar Datos</button>
+
+    <script>
+        async function fetchSheets() {
+            const response = await fetch('http://localhost:3000/sheets');
+            const sheets = await response.json();
+            const sheetSelect = document.getElementById('sheet-select');
+
+            sheets.forEach(sheet => {
+                const option = document.createElement('option');
+                option.value = sheet.title;
+                option.textContent = sheet.title;
+                sheetSelect.appendChild(option);
+            });
+        }
+
+        async function importData() {
+            const jsonData = document.getElementById('jsonData').value;
+            const sheetName = document.getElementById('new-sheet').value || document.getElementById('sheet-select').value;
+
+            try {
+                const response = await fetch('http://localhost:3000/import', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ data: JSON.parse(jsonData), sheetName })
+                });
+
+                if (response.ok) {
+                    alert('Datos añadidos exitosamente a Google Sheets');
+                } else {
+                    alert('Error añadiendo datos a Google Sheets');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error añadiendo datos a Google Sheets');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', fetchSheets);
+    </script>
+</body>
+</html>

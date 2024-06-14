@@ -1,0 +1,21 @@
+{
+  "name": "gastopublico",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "express": "^4.19.2",
+    "googleapis": "^137.1.0",
+    "jsdom": "^24.1.0",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^4.3.136",
+    "tesseract.js": "^5.1.0"
+  }
+}

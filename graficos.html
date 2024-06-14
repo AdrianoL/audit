@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gráficos de Google Sheets</title>
+    <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.indigo-pink.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.11.5/css/jquery.dataTables.min.css">
+    <script defer src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .top-sections {
+            display: flex;
+            flex: 1;
+            height: 50%;
+        }
+
+        .section {
+            width: 50%;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        .bottom-section {
+            height: 50%;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        #chart-container {
+            width: 50%;
+            display: flex;
+            align-items: center;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        #list-container {
+            overflow-y: auto;
+        }
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 50vh;
+        }
+
+        #list-container {
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        #list-container td {
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            padding: 0 5px;
+        }
+
+        div#filter-container {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+
+        div#filter-container div {
+            margin: 0 5px;
+            width: 30%;
+        }
+
+        label {
+            display: block;
+        }
+
+        .mdl-select__box {
+            width: 100%;
+            height: 70px;
+            border: 1px solid rgba(0, 0, 0, 0.12);
+            border-radius: 2px;
+            padding: 10px;
+            box-sizing: border-box;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="top-sections">
+            <div class="section" style="background-color: lightblue;">
+                <div id="chart-container" class="flex-row">
+                    <div>
+                        <select id="sheet-select" class="mdl-textfield__input"></select>
+                    </div>
+                    <div>
+                        <select id="column-select" class="mdl-textfield__input"></select>
+                    </div>
+                </div>
+                <div id="filter-container" class="flex-row"></div>
+            </div>
+            <div class="section" style="background-color: lightgreen;">
+                <canvas id="chart" class="flex-row"></canvas>
+            </div>
+        </div>
+        <div class="bottom-section" style="background-color: lightcoral;">
+            <div id="list-container" class="flex-row">
+                <table id="details-table" class="display" style="width:100%">
+                    <thead>
+                        <tr id="table-headers"></tr>
+                    </thead>
+                    <tbody id="details-list"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchSheets() {
+            const response = await fetch('/sheets');
+            return await response.json();
+        }
+
+        async function fetchData(sheetName) {
+            const response = await fetch(`/data/${encodeURIComponent(sheetName)}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Error fetching data: ${errorText}`);
+            }
+            return await response.json();
+        }
+
+        function createChart(ctx, label, data) {
+            return new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: data.map(d => `${d.label} (${d.count})`),
+                    datasets: [{
+                        label: label,
+                        data: data.map(d => d.percentage),
+                        backgroundColor: data.map(d => `hsl(${Math.random() * 360}, 100%, 75%)`),
+                        borderColor: 'rgba(255, 255, 255, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const value = context.raw;
+                                    return `${context.label}: ${value.toFixed(2)}%`;
+                                },
+                                afterLabel: function(context) {
+                                    const label = context.label.split(' (')[0];
+                                    const dataItem = data.find(d => d.label.split(' (')[0] === label);
+                                    const totalARS = dataItem.totalAmountARS;
+                                    const totalUSD = dataItem.totalAmountUSD;
+                                    let totalText = `Total ARS: ${totalARS}`;
+                                    if (totalUSD > 0) {
+                                        totalText += `\nTotal USD: ${totalUSD}`;
+                                    }
+                                    return totalText;
+                                }
+                            }
+                        }
+                    },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            displayDetails(data[index].details, headers);
+                        }
+                    }
+                }
+            });
+        }
+
+        function displayDetails(details, headers) {
+            const detailsList = document.getElementById('details-list');
+            const tableHeaders = document.getElementById('table-headers');
+            detailsList.innerHTML = '';
+
+            // Inicializar DataTables o destruir y recrear si ya existe
+            if ($.fn.DataTable.isDataTable('#details-table')) {
+                $('#details-table').DataTable().destroy();
+                $('#details-list').empty();
+            }
+
+            if (details.length > 0) {
+                tableHeaders.innerHTML = '';
+
+                headers.forEach(header => {
+                    const th = document.createElement('th');
+                    th.textContent = header;
+                    tableHeaders.appendChild(th);
+                });
+            }
+
+            details.forEach(detail => {
+                const row = document.createElement('tr');
+                const detailObj = detail;
+
+                headers.forEach(header => {
+                    const cell = document.createElement('td');
+                    const value = detailObj[header] || '';  // Asegúrate de que cada celda tenga un valor, incluso si está vacío
+                    if (header === 'pdfData') {
+                        cell.innerHTML = value.split('\n').map(link => {
+                            const [title, url] = link.split(' - ');
+                            return `<a href="${url}" target="_blank">${title}</a>`;
+                        }).join('<br>');
+                    } else {
+                        cell.textContent = value;
+                    }
+                    row.appendChild(cell);
+                });
+
+                detailsList.appendChild(row);
+            });
+
+            $('#details-table').DataTable({
+                "searching": true
+            });
+        }
+
+        function filterData(data, filters) {
+            return data.filter(row => {
+                return filters.every(filter => {
+                    const filterValues = filter.values;
+                    const filterKey = filter.key;
+                    return !filterValues.length || filterValues.includes(row[filterKey]);
+                });
+            });
+        }
+
+        function cleanMontoOriginal(monto) {
+            return parseInt(monto.replace(/\./g, '').replace(/,.*/, ''), 10);
+        }
+
+        function calculatePercentages(column, data) {
+            const counts = {};
+            const totalAmountsARS = {};
+            const totalAmountsUSD = {};
+            data.forEach(row => {
+                const value = row[column] ? row[column] : 'N/A';
+                if (!counts[value]) {
+                    counts[value] = 0;
+                    totalAmountsARS[value] = 0;
+                    totalAmountsUSD[value] = 0;
+                }
+                counts[value]++;
+                if (row['Monto'].includes('U$S')) {
+                    totalAmountsUSD[value] += cleanMontoOriginal(row['Monto']) || 0;
+                } else {
+                    totalAmountsARS[value] += cleanMontoOriginal(row['Monto']) || 0;
+                }
+            });
+
+            const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+            return Object.keys(counts).map(key => ({
+                label: key,
+                count: counts[key],
+                percentage: (counts[key] / total) * 100,
+                totalAmountARS: totalAmountsARS[key],
+                totalAmountUSD: totalAmountsUSD[key],
+                details: data.filter(row => (row[column] ? row[column] : 'N/A') === key)
+            }));
+        }
+
+        function updateFilters(headers, data, currentColumn, previousFilters, excludeColumns) {
+            const filterContainer = document.getElementById('filter-container');
+            filterContainer.innerHTML = '';
+
+            headers.forEach(header => {
+                if (header === currentColumn || excludeColumns.includes(header)) {
+                    return;
+                }
+
+                const filterWrapper = document.createElement('div');
+                const label = document.createElement('label');
+                label.textContent = `${header}:`;
+
+                const select = document.createElement('select');
+                select.multiple = true;
+                select.dataset.key = header;
+                select.className = 'mdl-select__box';
+
+                const uniqueValues = [...new Set(data.map(row => row[header]))].filter(value => value);
+                uniqueValues.forEach(value => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value;
+                    select.appendChild(option);
+                });
+
+                filterWrapper.appendChild(label);
+                filterWrapper.appendChild(select);
+                filterContainer.appendChild(filterWrapper);
+            });
+
+            // Restaura filtros previos si los hay
+            previousFilters.forEach(filter => {
+                const select = filterContainer.querySelector(`select[data-key="${filter.key}"]`);
+                if (select) {
+                    filter.values.forEach(value => {
+                        const option = select.querySelector(`option[value="${value}"]`);
+                        if (option) {
+                            option.selected = true;
+                        }
+                    });
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const sheets = await fetchSheets();
+                const sheetSelect = document.getElementById('sheet-select');
+                const columnSelect = document.getElementById('column-select');
+                const filterContainer = document.getElementById('filter-container');
+                const ctx = document.getElementById('chart').getContext('2d');
+                const excludeColumns = ['ID', 'Monto', 'Objetodelagestión', 'Descripción', 'fechaHoraApertura', 'numeroGestion', 'Valordelpliego', 'numeroAño', 'valorPliego', 'objeto', 'idOrganismoGestion', 'objetoCompleto', 'Lugardepresentacióndeofertas', 'Fechayhoralímitedepresentacióndeofertas', 'Lugardeaperturadeofertas', 'Fechayhoradeaperturadeofertas', 'Lugaryfechadeentrega', 'Expedientes', 'pdfData'];
+
+                sheets.forEach(sheet => {
+                    const option = document.createElement('option');
+                    option.value = sheet.title;
+                    option.textContent = sheet.title;
+                    sheetSelect.appendChild(option);
+                });
+
+                let currentSheet = sheets[0].title;
+                let headers = [];
+                let data = [];
+
+                const updateChart = async () => {
+                    const column = columnSelect.value;
+                    const filters = Array.from(filterContainer.querySelectorAll('select')).map(select => ({
+                        key: select.dataset.key,
+                        values: Array.from(select.selectedOptions).map(option => option.value)
+                    }));
+
+                    const filteredData = filterData(data, filters);
+                    const chartData = calculatePercentages(column, filteredData);
+
+                    if (window.chart instanceof Chart) {
+                        window.chart.destroy();
+                    }
+
+                    window.chart = createChart(ctx, column, chartData);
+                    displayDetails(filteredData, headers);
+
+                    updateFilters(headers, data, column, filters, excludeColumns);
+                };
+
+                sheetSelect.addEventListener('change', async () => {
+                    currentSheet = sheetSelect.value;
+                    try {
+                        const response = await fetchData(currentSheet);
+                        headers = response.headers;
+                        data = response.data;
+                        columnSelect.innerHTML = '';
+
+                        headers.forEach(header => {
+                            const option = document.createElement('option');
+                            option.value = header;
+                            option.textContent = header;
+                            columnSelect.appendChild(option);
+                        });
+
+                        columnSelect.dispatchEvent(new Event('change'));
+                    } catch (error) {
+                        console.error(error.message);
+                        alert('Error fetching data from Google Sheets.');
+                    }
+                });
+
+                columnSelect.addEventListener('change', () => {
+                    updateFilters(headers, data, columnSelect.value, [], excludeColumns);
+                    updateChart();
+                });
+
+                filterContainer.addEventListener('change', () => {
+                    updateChart();
+                });
+
+                // Initialize the sheet select and chart
+                sheetSelect.dispatchEvent(new Event('change'));
+            } catch (error) {
+                console.error('Error initializing the app:', error.message);
+            }
+        });
+    </script>
+</body>
+
+</html>
